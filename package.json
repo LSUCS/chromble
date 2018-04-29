@@ -1,0 +1,20 @@
+{
+  "name": "chromble",
+  "version": "1.0.0",
+  "description": "Automated web browser for the Big Screen PC at LSUCS LANs",
+  "main": "index.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build-win": "electron-builder build --windows --x64",
+    "build": "electron-builder"
+  },
+  "author": "William Obiri-Danso",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "electron": "^1.8.6"
+  },
+  "dependencies": {
+    "ini": "^1.3.5"
+  }
+}
