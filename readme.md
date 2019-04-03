@@ -7,7 +7,7 @@ using Electron.
 **Features**
 
 - Use of configuration files to setup program once every LAN.
-- Unattended switching between the presentation and twitch.tv stream.
+- Attended switching between the presentation and twitch.tv stream.
 - Split screen functionality, allowing tournament results to be displayed
 with the main presentation.
 - kareem
@@ -38,6 +38,11 @@ You will need a config file to run Chromble. Look in the 'config' folder
 for an example.
 
 Other than that, just follow the prompts after running the application.
+
+To switch between twitch and the presentation modes, do Ctrl-Alt-S.
+
+To refresh the page, do Ctrl-Alt-R (the program does this automatically
+after a specified amount of time.)
 
 To exit, press escape on the keyboard.
 
