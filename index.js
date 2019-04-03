@@ -1,72 +1,42 @@
 const {app, 
+       BrowserView,
 	   BrowserWindow, 
 	   dialog,
+       globalShortcut,
 	   net} = require('electron');
+const electron = require('electron');
 const fs = require('fs');
 const ini = require('ini');
 
-// Globally referencing the main browser window.
-let win;
+// Globally referencing the main browser window + subwindows
+let env, pres_win, tourn_win, twitch_win = null;
 var is_streaming = false;
+var mode = 0;
 
-// Twitch API
-function checkTwitch(env) {
-	console.log('Querying Twitch API');
-	const twitch_stream_api_url='https://api.twitch.tv/helix/streams';
-	
-	var request = net.request({
-				method: 'GET',
-				protocol: 'https:',
-				hostname: 'api.twitch.tv',
-				port: 443,
-				path: '/helix/streams/?user_login=' + env.twitchUser});
-	request.setHeader('Client-ID', env.twitchClid);
-	
-	request.on('response', (res) => {
-	
-		console.log('Got status: ' + res.statusCode);
+function refreshPres(type) {
+	if (!is_streaming) {
+        switch (type) {
+            case 0:
+                pres_win.reload();
+                break;
+            case 1:
+                tourn_win.reload();
+                break;
+            default:
+                console.log('Unknown refresh code!');
+                break;
+        }
 		
-		res.setEncoding('utf8');
-		
-		res.on('error', (err) => {
-			console.log('Got error: ' + JSON.stringify(err));
-			console.log('Could not query Twitch API!');
-			return;
-		});
-		
-		res.on('data', (stream) => {
-			try {
-				var twitch_json = JSON.parse(stream);
-				if (twitch_json.data.length > 0) {
-					console.log(env.twitchUser + ' is live!');
-					if (is_streaming == false) {
-						is_streaming = true;
-						switchToTwitch(env);
-					} 
-				} else {
-					console.log(env.twitchUser + ' is offline.');
-					if (is_streaming == true) {
-						is_streaming = false;
-						switchToPres(env);
-					}
-				}
-			} catch (ex) {
-				console.log('Could not query Twitch API!');
-			}
-		});
-	});
-	request.end();
+	}
 }
 
 function welcomeDialog() {
 	console.log('Showing welcome dialog');
-	dlgWelcome = dialog.showMessageBox({buttons: ['Open Config', 'Exit'],
-						   title: 'Chromble',
-						   message: 'Welcome to Chromble, ' +
-						            'the bigscreen management program ' + 
-						            'for LSUCS LANs.\n\n' +
-						            'To start, please load a chromble-compatible ' +
-						            'config file below.'});
+	dlgWelcome = dialog.showMessageBox({buttons: ['Open', 'Exit'],
+						   title: 'Chromble 2.0',
+						   message: 'Welcome to Chromble.\n\n' +
+						            'To start, please load a compatible ' +
+						            'config file.'});
 	if (dlgWelcome == 0) {
 		console.log('Open Config selected');
 		chooseConfig();
@@ -74,46 +44,6 @@ function welcomeDialog() {
 		console.log('Exit selected');
 		console.log('Quitting program');
 		app.quit();
-	}
-}
-
-function confirmDialog(env) {
-	console.log('Showing confirmation dialog');
-	dlgConfirm = dialog.showMessageBox({buttons: ['Yes', 'No'],
-						   type: 'info',
-						   title: 'Confirm',
-						   message: 'Your configuration settings are: \n\n' +
-						            'Event Name: ' + env.lanName + '\n' +
-						            'Presentation URL: Set\n' +
-						            'Twitch username: ' + env.twitchUser + '\n' +
-						            'Twitch Client ID: Set\n' +
-						            'Twitch API Refresh Interval: ' + env.apiRefresh + ' min(s)\n\n' +
-						            'Is this arrangement OK?'});
-	if (dlgConfirm == 0) {
-		console.log('Yes selected');
-		kioskDialog(env);
-	} else {
-		console.log('No selected');
-		console.log('Returning to welcome screen');
-		welcomeDialog();
-	}
-}
-
-function kioskDialog(env) {
-	console.log('Showing help/warning dialog');
-	dlgKiosk = dialog.showMessageBox({buttons: ['Yes', 'No'],
-						   type: 'warning',
-						   title: 'Warning!',
-						   message: 'You are about to enter into kiosk/presentation ' +
-						            'mode. To leave, just press escape.\n' +
-						            'Is this OK?'});
-	if (dlgKiosk == 0) {
-		console.log('Yes selected, no going back now!');
-		createWindow(env);
-	} else {
-		console.log('No selected');
-		console.log('Returning to welcome screen');
-		welcomeDialog();
 	}
 }
 
@@ -140,16 +70,21 @@ function parseConfig(confFile) {
 	// Use ini lib to parse the file w/ utf8 encoding
 	try {
 		var config = ini.parse(fs.readFileSync(confFile, 'utf-8'));
+        // Add screen size to the env
+        const {width, height} = electron.screen.getPrimaryDisplay().size
 		var env = { lanName: config.chromble.lan_name,
-				presUrl: config.chromble.pres_url,
-				twitchUser: config.chromble.twitch_user,
-				twitchClid: config.chromble.twitch_clid,
-				apiRefresh: config.chromble.api_refresh_interval
-			  };
-		// Pass to confirmation dialog
-		confirmDialog(env);
+                    mainPresUrl: config.chromble.pres_url_main,
+                    tournPresUrl: config.chromble.pres_url_tourn,
+                    twitchUser: config.chromble.twitch_user,
+                    mainPresRefresh: config.chromble.pres_main_refresh_interval,
+                    tournPresRefresh: config.chromble.pres_tourn_refresh_interval,
+                    scrWidth: width,
+                    scrHeight: height
+        };
+		// Evoke the kiosk now.
+        createWindow(env);
 	} catch (ex) {
-		console.log('Could not parse config!');
+		console.log('Could not parse config: ' + ex);
 		dialog.showErrorBox('Invalid File', 'Could not parse the config file.\nEnsure you have the [chromble] tag in your config and that your entries are spelt correctly.');
 		console.log('Returning to welcome screen');
 		welcomeDialog();
@@ -159,30 +94,95 @@ function parseConfig(confFile) {
 
 function createWindow(env) {
 	console.log('Opening kiosk browser window...');
-	// Create full screen browser window
-	win = new BrowserWindow({fullscreen: true});
+	// Create two frameless adjacent browser windows.
+	pres_win = new BrowserWindow({ x: 0, y: 0, width: env.scrWidth / 2, height: env.scrHeight, 
+                                   backgroundColor: '#000000', // Give a black background for refresh.
+                                   autoHideMenuBar: true,
+                                   fullscreen: false,
+                                   resizable: false, frame: false
+    });
+    
+    tourn_win = new BrowserWindow({ x: env.scrWidth / 2, y: 0, width: env.scrWidth / 2, height: env.scrHeight,
+                                    backgroundColor: '#000000',
+                                    autoHideMenuBar: true,
+                                    resizable: false, frame: false
+    });
+    
+    twitch_win = new BrowserWindow({ x: 0, y: 0, width: env.scrWidth, height: env.scrHeight,
+                                    backgroundColor: '#000000',
+                                    autoHideMenuBar: true,
+                                    fullscreen: true, show: false,
+                                    resizable: true, frame: false
+    });
 	
 	// By default, load up the presentation URL + set up twitch API checking.
 	switchToPres(env);
-	checkTwitch(env);
-	setInterval(checkTwitch, env.apiRefresh * 60000, env);
+	setInterval(refreshPres, env.mainPresRefresh * 60000, 0);
+    setInterval(refreshPres, env.tournPresRefresh * 60000, 1);
+    
+    // Register manual view switch shortcut (Ctrl+Alt+S)
+    globalShortcut.register('CmdOrCtrl+Alt+S', () => {
+        if (mode == 1) {
+            switchToPres(env);
+        } else {
+            switchToTwitch(env);
+        }
+    });
+    
+    // Register manual refresh shortcut (Ctrl+Alt+R)
+    globalShortcut.register('CmdOrCtrl+Alt+R', () => {
+        if (mode == 0) {
+            refreshPres(0);
+            refreshPres(1);
+        }
+    });
 
-	// Add on closed listener to free window pointer on app exit.
-	win.on('closed', () => {
-		win = null;
+	// Add on closed listeners to free window pointer on app exit.
+	pres_win.on('closed', () => {
+        globalShortcut.unregisterAll()
+		pres_win = null;
+        tourn_win = null;
+        twitch_win = null;
+		app.quit();
 	});
+    tourn_win.on('closed', () => {
+        globalShortcut.unregisterAll()
+		pres_win = null;
+        tourn_win = null;
+        twitch_win = null;
+		app.quit();
+	});
+    twitch_win.on('closed', () => {
+        globalShortcut.unregisterAll()
+		pres_win = null;
+        tourn_win = null;
+        twitch_win = null;
+		app.quit();
+	});
+    
 }
 
 function switchToTwitch(env) {
 	console.log('Switching to twitch player...');
-	win.loadURL('https://player.twitch.tv/?channel=' + env.twitchUser + '&autoplay=true');
+    mode = 1;
+    // Only show the twitch window.
+    tourn_win.hide();
+    pres_win.hide();
+    twitch_win.show();
+	twitch_win.loadURL('https://player.twitch.tv/?channel=' + env.twitchUser + '&autoplay=true');
 }
 
 function switchToPres(env) {
 	console.log('Switching to presentation player...');
-	win.loadURL(env.presUrl);
+    mode = 0;
+    // redisplay both windows.
+    twitch_win.hide();
+    pres_win.show();
+    tourn_win.show();
+	pres_win.loadURL(env.mainPresUrl);
+    tourn_win.loadURL(env.tournPresUrl);
 }
 
 // Open setup menu when electron has loaded.
 app.on('ready', welcomeDialog);
-console.log('Chromble 1.0.0 running');
+console.log('Chromble 2.1.0 running');

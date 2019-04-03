@@ -1,12 +1,14 @@
 Chromble
 ----------
 
-A bespoke web browser for [LSUCS](https://lsucs.org.uk) LAN events, implemented
+A bespoke web browser for [LSUVGS](https://lsuvgs.org.uk) LAN events, implemented
 using Electron.
 
 **Features**
 - Use of configuration files to setup program once every LAN.
 - Unattended switching between the presentation and twitch.tv stream.
+- Split screen functionality, allowing tournament results to be displayed
+with the main presentation.
 - kareem
 
 **Why?**

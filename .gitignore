@@ -1,5 +1,11 @@
 # Don't push all the modules (especially the bloated electron)
-node_modules
+node_modules/
 
 # Also disinclude the package-lock file
 package-lock.json
+yarn.lock
+
+# And remove the dist folder plz
+dist/
+
+.directory
