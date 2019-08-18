@@ -1,11 +1,11 @@
 {
   "name": "chromble",
   "version": "2.1.0",
-  "description": "Automated web browser for the Big Screen PC at LSUCS LANs",
+  "description": "Automated web browser for the Big Screen PC at LSUVGS LANs",
   "main": "index.js",
   "scripts": {
     "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "debug": "electron --debug .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --windows --x64"
   },
@@ -16,7 +16,8 @@
     "electron-builder": "^20.36.2"
   },
   "dependencies": {
-    "ini": "^1.3.5"
+    "ini": "^1.3.5",
+    "request-debug": "^0.2.0"
   },
   "build": {
     "appId": "uk.org.lsuvgs.chromble"

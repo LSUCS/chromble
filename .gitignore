@@ -8,4 +8,7 @@ yarn.lock
 # And remove the dist folder plz
 dist/
 
+# Don't leak our api key to the world
+api_key
+
 .directory

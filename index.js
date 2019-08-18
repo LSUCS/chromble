@@ -6,12 +6,61 @@ const {app,
 	   net} = require('electron');
 const electron = require('electron');
 const fs = require('fs');
-const ini = require('ini');
 
 // Globally referencing the main browser window + subwindows
-let env, pres_win, tourn_win, twitch_win = null;
+var env, pres_win, tourn_win, twitch_win = null;
 var is_streaming = false;
 var mode = 0;
+var apiKeyFileName = "api_key";
+
+// Twitch API
+function checkTwitch(env) {
+	console.log('Querying Twitch API');
+	
+	var request = net.request({
+				method: 'GET',
+				protocol: 'https:',
+				hostname: 'api.twitch.tv',
+				port: 443,
+				path: '/helix/streams/?user_login=' + env.twitch_user});
+	request.setHeader('Client-ID', env.twitch_client_id);
+	
+	request.on('response', (res) => {
+	
+		console.log('Got status: ' + res.statusCode);
+		
+		res.setEncoding('utf8');
+		
+		res.on('error', (err) => {
+			console.log('Got error: ' + JSON.stringify(err));
+			console.log('Could not query Twitch API!');
+			return;
+		});
+		
+		res.on('data', (stream) => {
+			try {
+				var twitch_json = JSON.parse(stream);
+				if (twitch_json.data.length > 0) {
+					console.log(env.twitch_user + ' is live!');
+					if (!is_streaming) {
+						is_streaming = true;
+						switchToTwitch(env);
+					} 
+				} else {
+					console.log(env.twitch_user + ' is offline.');
+					if (is_streaming) {
+						is_streaming = false;
+						switchToPres(env);
+					}
+				}
+			} catch (ex) {
+				console.log('Could not query Twitch API!');
+			}
+		});
+	});
+	request.end();
+}
+
 
 function refreshPres(type) {
 	if (!is_streaming) {
@@ -30,64 +79,54 @@ function refreshPres(type) {
 	}
 }
 
-function welcomeDialog() {
-	console.log('Showing welcome dialog');
-	dlgWelcome = dialog.showMessageBox({buttons: ['Open', 'Exit'],
-						   title: 'Chromble 2.0',
-						   message: 'Welcome to Chromble.\n\n' +
-						            'To start, please load a compatible ' +
-						            'config file.'});
-	if (dlgWelcome == 0) {
-		console.log('Open Config selected');
-		chooseConfig();
-	} else {
-		console.log('Exit selected');
-		console.log('Quitting program');
-		app.quit();
-	}
+function setup() {
+    console.log('Loading api_key...');
+    var apiKey = fs.readFileSync(apiKeyFileName, 'utf8');
+    if (!apiKey) {
+        dialog.showErrorBox('Key Error', 'Could not load API key!');
+        app.quit();
+    }
+	console.log('Attempting to load configuration from LAN website...');
+
+	var request = net.request('https://lan.lsucs.org.uk/api/presentationdata?api_key=' + apiKey);
+	request.on('response', (res) => {
+		console.log('Got status: ' + res.statusCode);
+		res.setEncoding('utf8');
+
+		res.on('error', (err) => {
+			console.log('Got error: ' + JSON.stringify(err));
+			console.log('Could not query LAN API!');
+			app.quit();
+		});
+		
+		res.on('data', (stream) => {
+			try {
+				var lanEnv = JSON.parse(stream);
+                parseConfig(lanEnv);
+			} catch (ex) {
+				console.log('Could not query LAN API: ' + ex);
+                app.quit();
+			}
+		});
+
+	});
+	request.end();
 }
 
-function chooseConfig() {
-	console.log('Showing open dialog');
-	dlgOpen = dialog.showOpenDialog({
-						   filters: [{name: 'Chromble Configuration Files',
-						              extensions: ['ini', 'conf', 'ccf']}],
-						   title: 'Open Config File...',
-						   properties: ['openFile']});
-	if (dlgOpen != null || dlgOpen[0] != '') {
-		console.log('Config file found');
-		parseConfig(dlgOpen[0]);
-	} else {
-		console.log('User provided nothing for config file, showing error.');
-		dialog.showErrorBox('No config file', 'Invalid file name or no file name specified.');
-		console.log('Returning to welcome screen');
-		welcomeDialog();
-	}
-}
-
-function parseConfig(confFile) {
-	console.log('Parsing config file...');
-	// Use ini lib to parse the file w/ utf8 encoding
+function parseConfig(lanEnv) {
+	console.log('Parsing webconfig...');
 	try {
-		var config = ini.parse(fs.readFileSync(confFile, 'utf-8'));
+        // make global environment
+        env = lanEnv;
         // Add screen size to the env
-        const {width, height} = electron.screen.getPrimaryDisplay().size
-		var env = { lanName: config.chromble.lan_name,
-                    mainPresUrl: config.chromble.pres_url_main,
-                    tournPresUrl: config.chromble.pres_url_tourn,
-                    twitchUser: config.chromble.twitch_user,
-                    mainPresRefresh: config.chromble.pres_main_refresh_interval,
-                    tournPresRefresh: config.chromble.pres_tourn_refresh_interval,
-                    scrWidth: width,
-                    scrHeight: height
-        };
+        const {width, height} = electron.screen.getPrimaryDisplay().size;
+        // Add width and height to the environment
+		env.scrWidth = width; env.scrHeight = height;
 		// Evoke the kiosk now.
         createWindow(env);
 	} catch (ex) {
-		console.log('Could not parse config: ' + ex);
-		dialog.showErrorBox('Invalid File', 'Could not parse the config file.\nEnsure you have the [chromble] tag in your config and that your entries are spelt correctly.');
-		console.log('Returning to welcome screen');
-		welcomeDialog();
+		console.log('Could not parse webconfig: ' + ex);
+		app.quit();
 	}
 	
 }
@@ -117,8 +156,8 @@ function createWindow(env) {
 	
 	// By default, load up the presentation URL + set up twitch API checking.
 	switchToPres(env);
-	setInterval(refreshPres, env.mainPresRefresh * 60000, 0);
-    setInterval(refreshPres, env.tournPresRefresh * 60000, 1);
+	setInterval(refreshPres, env.pres_refresh * 60000, 0);
+    setInterval(refreshPres, env.twitch_check * 60000, 1);
     
     // Register manual view switch shortcut (Ctrl+Alt+S)
     globalShortcut.register('CmdOrCtrl+Alt+S', () => {
@@ -179,10 +218,10 @@ function switchToPres(env) {
     twitch_win.hide();
     pres_win.show();
     tourn_win.show();
-	pres_win.loadURL(env.mainPresUrl);
-    tourn_win.loadURL(env.tournPresUrl);
+	pres_win.loadURL(env.main_pres_url);
+    tourn_win.loadURL(env.tourn_pres_url);
 }
 
 // Open setup menu when electron has loaded.
-app.on('ready', welcomeDialog);
-console.log('Chromble 2.1.0 running');
+app.on('ready', setup);
+console.log('Chromble 3.0.0 running');
